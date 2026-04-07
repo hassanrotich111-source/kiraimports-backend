@@ -78,12 +78,12 @@ async function initDatabase() {
       );
     `);
 
-    // Insert default admin if not exists
-    const hashedPassword = await bcrypt.hash('kira2024', 10);
+    // Insert default admin if not exists (username: Diana, password: Deeimports@2026)
+    const hashedPassword = await bcrypt.hash('Deeimports@2026', 10);
     await pool.query(`
       INSERT INTO admin (username, password) 
-      VALUES ('admin', $1)
-      ON CONFLICT (username) DO NOTHING
+      VALUES ('Diana', $1)
+      ON CONFLICT (username) DO UPDATE SET password = $1
     `, [hashedPassword]);
 
     // Insert default images if not exists
