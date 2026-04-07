@@ -14,13 +14,12 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// PostgreSQL connection
+// PostgreSQL connection (Neon)
 const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'kira_imports',
-  password: process.env.DB_PASSWORD || 'Hassan,rotich.1',
-  port: process.env.DB_PORT || 5432,
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // Cloudinary config (free account)
