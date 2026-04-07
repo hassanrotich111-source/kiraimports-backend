@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: kira-imports-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 18
+      - key: DB_HOST
+        value: your_db_host
+      - key: DB_PORT
+        value: 5432
+      - key: DB_NAME
+        value: kira_imports
+      - key: DB_USER
+        value: postgres
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
