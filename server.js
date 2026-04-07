@@ -15,12 +15,34 @@ app.use(cors());
 app.use(express.json());
 
 // PostgreSQL connection (Neon)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
+// Parse DATABASE_URL or use individual env vars
+const parseDbUrl = (url) => {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return {
+      user: parsed.username,
+      password: parsed.password,
+      host: parsed.hostname,
+      port: parsed.port || 5432,
+      database: parsed.pathname.slice(1),
+      ssl: { rejectUnauthorized: false }
+    };
+  } catch (e) {
+    return null;
   }
-});
+};
+
+const dbConfig = parseDbUrl(process.env.DATABASE_URL) || {
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME,
+  ssl: { rejectUnauthorized: false }
+};
+
+const pool = new Pool(dbConfig);
 
 // Cloudinary config (free account)
 cloudinary.config({

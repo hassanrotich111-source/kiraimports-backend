@@ -6,8 +6,16 @@ services:
     buildCommand: npm install
     startCommand: node server.js
     envVars:
-      - key: DATABASE_URL
-        value: postgresql://neondb_owner:npg_Wv3zK6PRrHLN@ep-flat-lab-am9hcpje.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require
+      - key: DB_HOST
+        value: ep-flat-lab-am9hcpje.c-5.us-east-1.aws.neon.tech
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        value: neondb
+      - key: DB_USER
+        value: neondb_owner
+      - key: DB_PASSWORD
+        value: npg_Wv3zK6PRrHLN
       - key: JWT_SECRET
         value: kira_imports_secret_key_2024_secure
       - key: CLOUDINARY_CLOUD_NAME
@@ -17,4 +25,4 @@ services:
       - key: CLOUDINARY_API_SECRET
         value: _jowO0DwPzE-xsOIfid4TQeZdwA
       - key: NODE_VERSION
-        value: 18
+        value: "18"
