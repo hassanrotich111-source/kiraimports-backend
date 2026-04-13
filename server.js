@@ -108,31 +108,8 @@ async function initDatabase() {
       ON CONFLICT (username) DO UPDATE SET password = $1
     `, [hashedPassword]);
 
-    // Insert default images if not exists
-    await pool.query(`
-      INSERT INTO images (key, url) VALUES 
-      ('logo', '/images/logo.jpeg'),
-      ('hero_left', '/images/hero_container_yard.jpg'),
-      ('hero_right', '/images/hero_portrait_business.jpg'),
-      ('category_machines', '/images/category_machines.jpg'),
-      ('category_electronics', '/images/category_electronics.jpg'),
-      ('category_kitchenware', '/images/category_kitchenware.jpg'),
-      ('category_furniture', '/images/category_furniture.jpg'),
-      ('category_clothing', '/images/category_clothing.jpg'),
-      ('category_bags', '/images/category_bags.jpg'),
-      ('sourcing_factory_line', '/images/sourcing_factory_line.jpg'),
-      ('quality_inspection', '/images/quality_inspection.jpg'),
-      ('shipping_truck_road', '/images/shipping_truck_road.jpg'),
-      ('service_support_desk', '/images/service_support_desk.jpg'),
-      ('import_cargo_plane', '/images/import_cargo_plane.jpg'),
-      ('sourcing_warehouse_aisle', '/images/sourcing_warehouse_aisle.jpg'),
-      ('testimonial_james', '/images/testimonial_james.jpg'),
-      ('testimonial_amina', '/images/testimonial_amina.jpg'),
-      ('testimonial_david', '/images/testimonial_david.jpg')
-      ON CONFLICT (key) DO NOTHING
-    `);
-
-    console.log('Database initialized');
+    // NOTE: No default images or products - admin must upload everything
+    console.log('Database initialized - waiting for admin uploads');
   } catch (err) {
     console.error('Database init error:', err);
   }
