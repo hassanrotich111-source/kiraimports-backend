@@ -277,6 +277,25 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       DO UPDATE SET url = $2, public_id = $3, updated_at = NOW()
     `, [key, imageUrl, publicId]);
 
+    // If this is the background image, also update background_settings
+    if (key === 'background') {
+      console.log('Updating background_settings with new image URL');
+      const existing = await pool.query('SELECT id FROM background_settings ORDER BY id LIMIT 1');
+      if (existing.rows.length > 0) {
+        await pool.query(`
+          UPDATE background_settings 
+          SET type = 'image', image_url = $1, updated_at = NOW()
+          WHERE id = $2
+        `, [imageUrl, existing.rows[0].id]);
+      } else {
+        await pool.query(`
+          INSERT INTO background_settings (type, image_url, color, overlay_opacity, updated_at)
+          VALUES ('image', $1, '#0a1f3d', 85, NOW())
+        `, [imageUrl]);
+      }
+      console.log('Background settings updated');
+    }
+
     console.log('Image saved successfully');
     res.json({ success: true, url: imageUrl });
   } catch (err) {
