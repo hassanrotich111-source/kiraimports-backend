@@ -138,6 +138,7 @@ async function initDatabase() {
       ('testimonial_james', ''),
       ('testimonial_amina', ''),
       ('testimonial_david', ''),
+      ('testimonial_sarah', ''),
       ('service_sourcing', ''),
       ('service_verification', ''),
       ('service_quality', ''),
