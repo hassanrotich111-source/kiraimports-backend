@@ -194,17 +194,26 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
   const { key } = req.params;
   
   try {
+    console.log('Upload request received for key:', key);
+    console.log('File received:', req.file ? 'Yes' : 'No');
+    
     let imageUrl = req.body.url; // If URL provided instead of file
     let publicId = null;
 
     // If file uploaded, upload to Cloudinary
     if (req.file) {
+      console.log('Uploading to Cloudinary...');
       const result = await new Promise((resolve, reject) => {
         cloudinary.uploader.upload_stream(
           { folder: 'kira_imports' },
           (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
+            if (error) {
+              console.error('Cloudinary upload error:', error);
+              reject(error);
+            } else {
+              console.log('Cloudinary upload success:', result.secure_url);
+              resolve(result);
+            }
           }
         ).end(req.file.buffer);
       });
@@ -212,7 +221,12 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       publicId = result.public_id;
     }
 
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'No image provided' });
+    }
+
     // Update database
+    console.log('Saving to database:', key, imageUrl);
     await pool.query(`
       INSERT INTO images (key, url, public_id, updated_at) 
       VALUES ($1, $2, $3, NOW())
@@ -220,9 +234,11 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       DO UPDATE SET url = $2, public_id = $3, updated_at = NOW()
     `, [key, imageUrl, publicId]);
 
+    console.log('Image saved successfully');
     res.json({ success: true, url: imageUrl });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Upload error:', err);
+    res.status(500).json({ error: err.message, details: err.toString() });
   }
 });
 
@@ -252,17 +268,26 @@ app.get('/api/products/:id', async (req, res) => {
 app.post('/api/products', authMiddleware, upload.single('image'), async (req, res) => {
   const { name, description, category, price } = req.body;
   
+  console.log('Create product request:', { name, category, price });
+  console.log('File received:', req.file ? 'Yes' : 'No');
+  
   try {
-    let imageUrl = null;
+    let imageUrl = req.body.image_url || null;
     let publicId = null;
 
     if (req.file) {
+      console.log('Uploading product image to Cloudinary...');
       const result = await new Promise((resolve, reject) => {
         cloudinary.uploader.upload_stream(
           { folder: 'kira_imports/products' },
           (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
+            if (error) {
+              console.error('Cloudinary upload error:', error);
+              reject(error);
+            } else {
+              console.log('Cloudinary upload success:', result.secure_url);
+              resolve(result);
+            }
           }
         ).end(req.file.buffer);
       });
@@ -270,14 +295,17 @@ app.post('/api/products', authMiddleware, upload.single('image'), async (req, re
       publicId = result.public_id;
     }
 
+    console.log('Saving product to database...');
     const result = await pool.query(`
       INSERT INTO products (name, description, category, price, image_url, public_id)
       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
     `, [name, description, category, price, imageUrl, publicId]);
 
+    console.log('Product created:', result.rows[0].id);
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Create product error:', err);
+    res.status(500).json({ error: err.message, details: err.toString() });
   }
 });
 
