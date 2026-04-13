@@ -269,7 +269,12 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
 app.get('/api/products', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM products WHERE active = true ORDER BY created_at DESC');
-    res.json(result.rows);
+    // Transform data to include both image and image_url for compatibility
+    const products = result.rows.map(p => ({
+      ...p,
+      image: p.image_url || '/images/category_electronics.jpg',
+    }));
+    res.json(products);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -323,7 +328,12 @@ app.post('/api/products', authMiddleware, upload.single('image'), async (req, re
     `, [name, description, category, price, imageUrl, publicId]);
 
     console.log('Product created:', result.rows[0].id);
-    res.json(result.rows[0]);
+    // Return with image field for compatibility
+    const product = result.rows[0];
+    res.json({
+      ...product,
+      image: product.image_url || '/images/category_electronics.jpg',
+    });
   } catch (err) {
     console.error('Create product error:', err);
     res.status(500).json({ error: err.message, details: err.toString() });
@@ -358,7 +368,12 @@ app.put('/api/products/:id', authMiddleware, upload.single('image'), async (req,
       WHERE id = $7 RETURNING *
     `, [name, description, category, price, imageUrl, publicId, req.params.id]);
 
-    res.json(result.rows[0]);
+    // Return with image field for compatibility
+    const product = result.rows[0];
+    res.json({
+      ...product,
+      image: product.image_url || '/images/category_electronics.jpg',
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
