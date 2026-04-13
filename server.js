@@ -127,7 +127,13 @@ async function initDatabase() {
       ('sourcing_warehouse_aisle', ''),
       ('testimonial_james', ''),
       ('testimonial_amina', ''),
-      ('testimonial_david', '')
+      ('testimonial_david', ''),
+      ('service_sourcing', ''),
+      ('service_verification', ''),
+      ('service_quality', ''),
+      ('service_shipping', ''),
+      ('service_delivery', ''),
+      ('service_support', '')
       ON CONFLICT (key) DO NOTHING
     `);
 
