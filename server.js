@@ -140,15 +140,24 @@ async function initDatabase() {
 
 // Auth middleware
 const authMiddleware = async (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token' });
+  const authHeader = req.headers.authorization;
+  console.log('Auth header:', authHeader ? 'Present' : 'Missing');
+  
+  const token = authHeader?.split(' ')[1];
+  if (!token) {
+    console.log('No token provided');
+    return res.status(401).json({ error: 'No token' });
+  }
   
   try {
+    console.log('Verifying token with JWT_SECRET:', JWT_SECRET.substring(0, 10) + '...');
     const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('Token verified for user:', decoded.username);
     req.admin = decoded;
     next();
   } catch (err) {
-    res.status(401).json({ error: 'Invalid token' });
+    console.error('Token verification failed:', err.message);
+    res.status(401).json({ error: 'Invalid token', details: err.message });
   }
 };
 
@@ -157,18 +166,30 @@ const authMiddleware = async (req, res, next) => {
 // Admin login
 app.post('/api/admin/login', async (req, res) => {
   const { username, password } = req.body;
+  console.log('Login attempt for:', username);
   
   try {
     const result = await pool.query('SELECT * FROM admin WHERE username = $1', [username]);
     const admin = result.rows[0];
     
-    if (!admin || !await bcrypt.compare(password, admin.password)) {
+    if (!admin) {
+      console.log('User not found:', username);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
+    const passwordMatch = await bcrypt.compare(password, admin.password);
+    console.log('Password match:', passwordMatch);
+    
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    console.log('Creating token with JWT_SECRET:', JWT_SECRET.substring(0, 10) + '...');
     const token = jwt.sign({ id: admin.id, username: admin.username }, JWT_SECRET, { expiresIn: '24h' });
+    console.log('Token created successfully for:', username);
     res.json({ token, username: admin.username });
   } catch (err) {
+    console.error('Login error:', err);
     res.status(500).json({ error: err.message });
   }
 });
