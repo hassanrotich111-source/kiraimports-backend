@@ -108,8 +108,30 @@ async function initDatabase() {
       ON CONFLICT (username) DO UPDATE SET password = $1
     `, [hashedPassword]);
 
-    // NOTE: No default images or products - admin must upload everything
-    console.log('Database initialized - waiting for admin uploads');
+    // Insert default images if not exists (admin can update these)
+    await pool.query(`
+      INSERT INTO images (key, url) VALUES 
+      ('logo', '/images/logo.jpeg'),
+      ('hero_bg_shipping', '/images/hero_bg_shipping.jpg'),
+      ('category_machines', ''),
+      ('category_electronics', ''),
+      ('category_kitchenware', ''),
+      ('category_furniture', ''),
+      ('category_clothing', ''),
+      ('category_bags', ''),
+      ('sourcing_factory_line', ''),
+      ('quality_inspection', ''),
+      ('shipping_truck_road', ''),
+      ('service_support_desk', ''),
+      ('import_cargo_plane', ''),
+      ('sourcing_warehouse_aisle', ''),
+      ('testimonial_james', ''),
+      ('testimonial_amina', ''),
+      ('testimonial_david', '')
+      ON CONFLICT (key) DO NOTHING
+    `);
+
+    console.log('Database initialized - admin can update images via panel');
   } catch (err) {
     console.error('Database init error:', err);
   }
