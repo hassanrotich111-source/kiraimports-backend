@@ -15,6 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 // PostgreSQL connection (Neon)
+// Parse DATABASE_URL or use individual env vars
 const parseDbUrl = (url) => {
   if (!url) return null;
   try {
@@ -43,7 +44,7 @@ const dbConfig = parseDbUrl(process.env.DATABASE_URL) || {
 
 const pool = new Pool(dbConfig);
 
-// Cloudinary config
+// Cloudinary config (free account)
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -108,7 +109,7 @@ async function initDatabase() {
       );
     `);
 
-    // Insert default admin
+    // Insert default admin if not exists (username: Diana, password: Deeimports@2026)
     const hashedPassword = await bcrypt.hash('Deeimports@2026', 10);
     await pool.query(`
       INSERT INTO admin (username, password) 
@@ -116,11 +117,12 @@ async function initDatabase() {
       ON CONFLICT (username) DO UPDATE SET password = $1
     `, [hashedPassword]);
 
-    // Insert default images
+    // Insert default images if not exists (admin can update these)
     await pool.query(`
       INSERT INTO images (key, url) VALUES 
       ('logo', '/images/logo.jpeg'),
       ('hero_bg_shipping', '/images/hero_bg_shipping.jpg'),
+      ('background', '/images/hero_shipping_bg.jpg'),
       ('category_machines', ''),
       ('category_electronics', ''),
       ('category_kitchenware', ''),
@@ -145,14 +147,14 @@ async function initDatabase() {
       ON CONFLICT (key) DO NOTHING
     `);
 
-    // Insert default background settings
+    // Insert default background settings if not exists
     await pool.query(`
       INSERT INTO background_settings (type, image_url, color, overlay_opacity) 
       VALUES ('image', '/images/hero_shipping_bg.jpg', '#0a1f3d', 85)
       ON CONFLICT DO NOTHING
     `);
 
-    console.log('Database initialized successfully');
+    console.log('Database initialized - admin can update images via panel');
   } catch (err) {
     console.error('Database init error:', err);
   }
@@ -161,40 +163,52 @@ async function initDatabase() {
 // Auth middleware
 const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers.authorization;
-  const token = authHeader?.split(' ')[1];
+  console.log('Auth header:', authHeader ? 'Present' : 'Missing');
   
+  const token = authHeader?.split(' ')[1];
   if (!token) {
+    console.log('No token provided');
     return res.status(401).json({ error: 'No token' });
   }
   
   try {
+    console.log('Verifying token with JWT_SECRET:', JWT_SECRET.substring(0, 10) + '...');
     const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('Token verified for user:', decoded.username);
     req.admin = decoded;
     next();
   } catch (err) {
+    console.error('Token verification failed:', err.message);
     res.status(401).json({ error: 'Invalid token', details: err.message });
   }
 };
 
 // ========== AUTH ROUTES ==========
+
+// Admin login
 app.post('/api/admin/login', async (req, res) => {
   const { username, password } = req.body;
+  console.log('Login attempt for:', username);
   
   try {
     const result = await pool.query('SELECT * FROM admin WHERE username = $1', [username]);
     const admin = result.rows[0];
     
     if (!admin) {
+      console.log('User not found:', username);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
     const passwordMatch = await bcrypt.compare(password, admin.password);
+    console.log('Password match:', passwordMatch);
     
     if (!passwordMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
+    console.log('Creating token with JWT_SECRET:', JWT_SECRET.substring(0, 10) + '...');
     const token = jwt.sign({ id: admin.id, username: admin.username }, JWT_SECRET, { expiresIn: '24h' });
+    console.log('Token created successfully for:', username);
     res.json({ token, username: admin.username });
   } catch (err) {
     console.error('Login error:', err);
@@ -203,6 +217,8 @@ app.post('/api/admin/login', async (req, res) => {
 });
 
 // ========== IMAGES ROUTES ==========
+
+// Get all images
 app.get('/api/images', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM images');
@@ -216,20 +232,31 @@ app.get('/api/images', async (req, res) => {
   }
 });
 
+// Upload image (admin only)
 app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req, res) => {
   const { key } = req.params;
   
   try {
-    let imageUrl = req.body.url;
+    console.log('Upload request received for key:', key);
+    console.log('File received:', req.file ? 'Yes' : 'No');
+    
+    let imageUrl = req.body.url; // If URL provided instead of file
     let publicId = null;
 
+    // If file uploaded, upload to Cloudinary
     if (req.file) {
+      console.log('Uploading to Cloudinary...');
       const result = await new Promise((resolve, reject) => {
         cloudinary.uploader.upload_stream(
           { folder: 'kira_imports' },
           (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
+            if (error) {
+              console.error('Cloudinary upload error:', error);
+              reject(error);
+            } else {
+              console.log('Cloudinary upload success:', result.secure_url);
+              resolve(result);
+            }
           }
         ).end(req.file.buffer);
       });
@@ -241,6 +268,8 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       return res.status(400).json({ error: 'No image provided' });
     }
 
+    // Update database
+    console.log('Saving to database:', key, imageUrl);
     await pool.query(`
       INSERT INTO images (key, url, public_id, updated_at) 
       VALUES ($1, $2, $3, NOW())
@@ -248,17 +277,21 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       DO UPDATE SET url = $2, public_id = $3, updated_at = NOW()
     `, [key, imageUrl, publicId]);
 
+    console.log('Image saved successfully');
     res.json({ success: true, url: imageUrl });
   } catch (err) {
     console.error('Upload error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, details: err.toString() });
   }
 });
 
 // ========== PRODUCTS ROUTES ==========
+
+// Get all products
 app.get('/api/products', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM products WHERE active = true ORDER BY created_at DESC');
+    // Transform data to include both image and image_url for compatibility
     const products = result.rows.map(p => ({
       ...p,
       image: p.image_url || '/images/category_electronics.jpg',
@@ -269,6 +302,7 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
+// Get single product
 app.get('/api/products/:id', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM products WHERE id = $1', [req.params.id]);
@@ -278,20 +312,30 @@ app.get('/api/products/:id', async (req, res) => {
   }
 });
 
+// Create product (admin only)
 app.post('/api/products', authMiddleware, upload.single('image'), async (req, res) => {
   const { name, description, category, price } = req.body;
+  
+  console.log('Create product request:', { name, category, price });
+  console.log('File received:', req.file ? 'Yes' : 'No');
   
   try {
     let imageUrl = req.body.image_url || null;
     let publicId = null;
 
     if (req.file) {
+      console.log('Uploading product image to Cloudinary...');
       const result = await new Promise((resolve, reject) => {
         cloudinary.uploader.upload_stream(
           { folder: 'kira_imports/products' },
           (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
+            if (error) {
+              console.error('Cloudinary upload error:', error);
+              reject(error);
+            } else {
+              console.log('Cloudinary upload success:', result.secure_url);
+              resolve(result);
+            }
           }
         ).end(req.file.buffer);
       });
@@ -299,11 +343,14 @@ app.post('/api/products', authMiddleware, upload.single('image'), async (req, re
       publicId = result.public_id;
     }
 
+    console.log('Saving product to database...');
     const result = await pool.query(`
       INSERT INTO products (name, description, category, price, image_url, public_id)
       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
     `, [name, description, category, price, imageUrl, publicId]);
 
+    console.log('Product created:', result.rows[0].id);
+    // Return with image field for compatibility
     const product = result.rows[0];
     res.json({
       ...product,
@@ -311,10 +358,11 @@ app.post('/api/products', authMiddleware, upload.single('image'), async (req, re
     });
   } catch (err) {
     console.error('Create product error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, details: err.toString() });
   }
 });
 
+// Update product (admin only)
 app.put('/api/products/:id', authMiddleware, upload.single('image'), async (req, res) => {
   const { name, description, category, price } = req.body;
   
@@ -342,6 +390,7 @@ app.put('/api/products/:id', authMiddleware, upload.single('image'), async (req,
       WHERE id = $7 RETURNING *
     `, [name, description, category, price, imageUrl, publicId, req.params.id]);
 
+    // Return with image field for compatibility
     const product = result.rows[0];
     res.json({
       ...product,
@@ -352,6 +401,7 @@ app.put('/api/products/:id', authMiddleware, upload.single('image'), async (req,
   }
 });
 
+// Delete product (admin only)
 app.delete('/api/products/:id', authMiddleware, async (req, res) => {
   try {
     await pool.query('UPDATE products SET active = false WHERE id = $1', [req.params.id]);
@@ -362,6 +412,8 @@ app.delete('/api/products/:id', authMiddleware, async (req, res) => {
 });
 
 // ========== CATEGORIES ROUTES ==========
+
+// Get all categories
 app.get('/api/categories', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM categories WHERE active = true');
@@ -372,10 +424,13 @@ app.get('/api/categories', async (req, res) => {
 });
 
 // ========== BACKGROUND SETTINGS ROUTES ==========
+
+// Get background settings (public)
 app.get('/api/background', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM background_settings ORDER BY id LIMIT 1');
     if (result.rows.length === 0) {
+      // Return default settings
       return res.json({
         type: 'image',
         imageUrl: '/images/hero_shipping_bg.jpg',
@@ -396,21 +451,25 @@ app.get('/api/background', async (req, res) => {
   }
 });
 
+// Save background settings (admin only)
 app.post('/api/background', authMiddleware, async (req, res) => {
   const { type, imageUrl, color, overlayOpacity } = req.body;
   
   try {
     console.log('Saving background settings:', { type, imageUrl, color, overlayOpacity });
     
+    // Check if there's an existing record
     const existing = await pool.query('SELECT id FROM background_settings ORDER BY id LIMIT 1');
     
     if (existing.rows.length > 0) {
+      // Update existing record
       await pool.query(`
         UPDATE background_settings 
         SET type = $1, image_url = $2, color = $3, overlay_opacity = $4, updated_at = NOW()
         WHERE id = $5
       `, [type, imageUrl, color, overlayOpacity, existing.rows[0].id]);
     } else {
+      // Insert new record
       await pool.query(`
         INSERT INTO background_settings (type, image_url, color, overlay_opacity, updated_at)
         VALUES ($1, $2, $3, $4, NOW())
@@ -425,11 +484,12 @@ app.post('/api/background', authMiddleware, async (req, res) => {
   }
 });
 
-// ========== HEALTH & PING ==========
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Ping endpoint to keep Render awake
 app.get('/api/ping', (req, res) => {
   res.json({ status: 'pong', time: Date.now() });
 });
