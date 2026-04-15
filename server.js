@@ -68,8 +68,8 @@ function parsePrice(priceString) {
 
 // Helper function to format price for display
 function formatPrice(num) {
-  if (num === null || num === undefined) return '';
-  return 'Ksh ' + num.toLocaleString('en-KE');
+  if (num === null || num === undefined || num === 0 || num === '0') return 'Ksh 0';
+  return 'Ksh ' + Number(num).toLocaleString('en-KE');
 }
 
 // Initialize database tables
