@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: kira-imports-backend
+    runtime: node
+    repo: https://github.com/hassanrotich111-source/kiraimports-backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: DB_HOST
+        value: ep-flat-lab-am9hcpje.c-5.us-east-1.aws.neon.tech
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        value: neondb
+      - key: DB_USER
+        value: neondb_owner
+      - key: DB_PASSWORD
+        value: npg_Wv3zK6PRrHLN
+      - key: JWT_SECRET
+        value: kira_imports_secret_key_2024_secure
+      - key: CLOUDINARY_CLOUD_NAME
+        value: dc71005wj
+      - key: CLOUDINARY_API_KEY
+        value: 655581152523785
+      - key: CLOUDINARY_API_SECRET
+        value: _jowO0DwPzE-xsOIfid4TQeZdwA
+      - key: NODE_VERSION
+        value: "18"
