@@ -373,14 +373,19 @@ app.get('/api/products/:id', async (req, res) => {
 
 // Create product (admin only)
 app.post('/api/products', authMiddleware, upload.single('image'), async (req, res) => {
+  console.log('=== CREATE PRODUCT ===');
+  console.log('Request body:', req.body);
+  console.log('Form fields:', Object.keys(req.body));
+  
   const { name, description, category, price, service_fee } = req.body;
+  
+  console.log('Raw values:', { name, price, service_fee });
   
   // Parse prices - strip Ksh and commas
   const parsedPrice = parsePrice(price);
   const parsedServiceFee = parsePrice(service_fee);
   
-  console.log('Create product request:', { name, category, price: parsedPrice, service_fee: parsedServiceFee });
-  console.log('File received:', req.file ? 'Yes' : 'No');
+  console.log('Parsed values:', { price: parsedPrice, service_fee: parsedServiceFee });
   
   try {
     let imageUrl = req.body.image_url || null;
@@ -429,11 +434,18 @@ app.post('/api/products', authMiddleware, upload.single('image'), async (req, re
 
 // Update product (admin only)
 app.put('/api/products/:id', authMiddleware, upload.single('image'), async (req, res) => {
+  console.log('=== UPDATE PRODUCT ===');
+  console.log('Request body:', req.body);
+  
   const { name, description, category, price, service_fee } = req.body;
+  
+  console.log('Raw values:', { name, price, service_fee });
   
   // Parse prices - strip Ksh and commas
   const parsedPrice = parsePrice(price);
   const parsedServiceFee = parsePrice(service_fee);
+  
+  console.log('Parsed values:', { price: parsedPrice, service_fee: parsedServiceFee });
   
   try {
     let imageUrl = req.body.image_url;
