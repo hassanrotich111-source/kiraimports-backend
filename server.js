@@ -267,31 +267,51 @@ app.get('/api/images', async (req, res) => {
   }
 });
 
-// Upload image (admin only)
+// Save image URL to database (used after direct Cloudinary upload from browser)
+app.post('/api/images/:key/save', authMiddleware, async (req, res) => {
+  const { key } = req.params;
+  const { url, public_id } = req.body;
+  
+  if (!url) return res.status(400).json({ error: 'No URL provided' });
+  
+  try {
+    await pool.query(`
+      INSERT INTO images (key, url, public_id, updated_at) 
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (key) 
+      DO UPDATE SET url = $2, public_id = $3, updated_at = NOW()
+    `, [key, url, public_id || null]);
+
+    if (key === 'background') {
+      const existing = await pool.query('SELECT id FROM background_settings ORDER BY id LIMIT 1');
+      if (existing.rows.length > 0) {
+        await pool.query(`UPDATE background_settings SET type = 'image', image_url = $1, updated_at = NOW() WHERE id = $2`, [url, existing.rows[0].id]);
+      } else {
+        await pool.query(`INSERT INTO background_settings (type, image_url, color, overlay_opacity, updated_at) VALUES ('image', $1, '#0a1f3d', 85, NOW())`, [url]);
+      }
+    }
+    res.json({ success: true, url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upload image through backend (fallback when direct Cloudinary upload not available)
 app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req, res) => {
   const { key } = req.params;
   
   try {
-    console.log('Upload request received for key:', key);
-    console.log('File received:', req.file ? 'Yes' : 'No');
-    
-    let imageUrl = req.body.url; // If URL provided instead of file
+    console.log('Upload request for key:', key);
+    let imageUrl = req.body.url;
     let publicId = null;
 
-    // If file uploaded, upload to Cloudinary
     if (req.file) {
-      console.log('Uploading to Cloudinary...');
       const result = await new Promise((resolve, reject) => {
         cloudinary.uploader.upload_stream(
           { folder: 'kira_imports' },
           (error, result) => {
-            if (error) {
-              console.error('Cloudinary upload error:', error);
-              reject(error);
-            } else {
-              console.log('Cloudinary upload success:', result.secure_url);
-              resolve(result);
-            }
+            if (error) reject(error);
+            else resolve(result);
           }
         ).end(req.file.buffer);
       });
@@ -299,12 +319,8 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       publicId = result.public_id;
     }
 
-    if (!imageUrl) {
-      return res.status(400).json({ error: 'No image provided' });
-    }
+    if (!imageUrl) return res.status(400).json({ error: 'No image provided' });
 
-    // Update database
-    console.log('Saving to database:', key, imageUrl);
     await pool.query(`
       INSERT INTO images (key, url, public_id, updated_at) 
       VALUES ($1, $2, $3, NOW())
@@ -312,30 +328,18 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       DO UPDATE SET url = $2, public_id = $3, updated_at = NOW()
     `, [key, imageUrl, publicId]);
 
-    // If this is the background image, also update background_settings
     if (key === 'background') {
-      console.log('Updating background_settings with new image URL');
       const existing = await pool.query('SELECT id FROM background_settings ORDER BY id LIMIT 1');
       if (existing.rows.length > 0) {
-        await pool.query(`
-          UPDATE background_settings 
-          SET type = 'image', image_url = $1, updated_at = NOW()
-          WHERE id = $2
-        `, [imageUrl, existing.rows[0].id]);
+        await pool.query(`UPDATE background_settings SET type = 'image', image_url = $1, updated_at = NOW() WHERE id = $2`, [imageUrl, existing.rows[0].id]);
       } else {
-        await pool.query(`
-          INSERT INTO background_settings (type, image_url, color, overlay_opacity, updated_at)
-          VALUES ('image', $1, '#0a1f3d', 85, NOW())
-        `, [imageUrl]);
+        await pool.query(`INSERT INTO background_settings (type, image_url, color, overlay_opacity, updated_at) VALUES ('image', $1, '#0a1f3d', 85, NOW())`, [imageUrl]);
       }
-      console.log('Background settings updated');
     }
 
-    console.log('Image saved successfully');
     res.json({ success: true, url: imageUrl });
   } catch (err) {
-    console.error('Upload error:', err);
-    res.status(500).json({ error: err.message, details: err.toString() });
+    res.status(500).json({ error: err.message });
   }
 });
 
