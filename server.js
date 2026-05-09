@@ -124,6 +124,17 @@ async function initDatabase() {
         overlay_opacity INTEGER DEFAULT 85,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS testimonials (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        title VARCHAR(100) NOT NULL,
+        quote TEXT NOT NULL,
+        rating INTEGER DEFAULT 5,
+        image_key VARCHAR(50),
+        sort_order INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migration: Add service_fee column to products if it doesn't exist
@@ -582,6 +593,44 @@ app.post('/api/background', authMiddleware, async (req, res) => {
     res.json({ success: true, type, imageUrl, color, overlayOpacity });
   } catch (err) {
     console.error('Save background error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== TESTIMONIALS ROUTES ==========
+
+// Get all testimonials (public - no auth needed)
+app.get('/api/testimonials', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM testimonials ORDER BY sort_order ASC, id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save all testimonials (admin only)
+app.post('/api/testimonials', authMiddleware, async (req, res) => {
+  const { testimonials } = req.body;
+  
+  if (!Array.isArray(testimonials)) {
+    return res.status(400).json({ error: 'testimonials array required' });
+  }
+  
+  try {
+    // Clear existing and insert new
+    await pool.query('DELETE FROM testimonials');
+    
+    for (let i = 0; i < testimonials.length; i++) {
+      const t = testimonials[i];
+      await pool.query(
+        'INSERT INTO testimonials (name, title, quote, rating, image_key, sort_order) VALUES ($1, $2, $3, $4, $5, $6)',
+        [t.name, t.title, t.quote, t.rating || 5, t.imageKey || t.image_key || null, i]
+      );
+    }
+    
+    res.json({ success: true, count: testimonials.length });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
