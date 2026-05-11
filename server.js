@@ -152,6 +152,14 @@ async function initDatabase() {
     } catch (err) {
       console.log('Migration note:', err.message);
     }
+    
+    // Migration: Add image_url column to testimonials if it doesn't exist
+    try {
+      await pool.query(`ALTER TABLE testimonials ADD COLUMN IF NOT EXISTS image_url TEXT`);
+      console.log('Migration: testimonials image_url column added (or already exists)');
+    } catch (err) {
+      console.log('Migration note:', err.message);
+    }
 
     // Insert default admin if not exists (username: Diana, password: Deeimports@2026)
     const hashedPassword = await bcrypt.hash('Deeimports@2026', 10);
@@ -620,7 +628,18 @@ app.post('/api/background', authMiddleware, async (req, res) => {
 app.get('/api/testimonials', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM testimonials ORDER BY sort_order ASC, id ASC');
-    res.json(result.rows);
+    // Map snake_case to camelCase for frontend
+    const testimonials = result.rows.map(t => ({
+      id: t.id,
+      name: t.name,
+      title: t.title,
+      quote: t.quote,
+      rating: t.rating,
+      imageKey: t.image_key,
+      imageUrl: t.image_url,
+      sortOrder: t.sort_order,
+    }));
+    res.json(testimonials);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -641,8 +660,8 @@ app.post('/api/testimonials', authMiddleware, async (req, res) => {
     for (let i = 0; i < testimonials.length; i++) {
       const t = testimonials[i];
       await pool.query(
-        'INSERT INTO testimonials (name, title, quote, rating, image_key, sort_order) VALUES ($1, $2, $3, $4, $5, $6)',
-        [t.name, t.title, t.quote, t.rating || 5, t.imageKey || t.image_key || null, i]
+        'INSERT INTO testimonials (name, title, quote, rating, image_key, image_url, sort_order) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [t.name, t.title, t.quote, t.rating || 5, t.imageKey || null, t.imageUrl || null, i]
       );
     }
     
