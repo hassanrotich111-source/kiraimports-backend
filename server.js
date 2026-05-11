@@ -381,6 +381,7 @@ app.get('/api/products', async (req, res) => {
       description: p.description,
       price: p.price,
       service_fee: p.service_fee,
+      videoUrl: p.video_url,
       category: p.category,
       image_url: p.image_url,
       public_id: p.public_id,
@@ -452,7 +453,15 @@ app.post('/api/products', authMiddleware, upload.single('image'), async (req, re
     // Return with image field and formatted prices for display
     const product = result.rows[0];
     res.json({
-      ...product,
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      service_fee: product.service_fee,
+      videoUrl: product.video_url,
+      category: product.category,
+      image_url: product.image_url,
+      public_id: product.public_id,
       image: product.image_url || '/images/category_electronics.jpg',
       price_formatted: formatPrice(product.price),
       service_fee_formatted: formatPrice(product.service_fee),
@@ -504,7 +513,15 @@ app.put('/api/products/:id', authMiddleware, upload.single('image'), async (req,
     // Return with image field and formatted prices
     const product = result.rows[0];
     res.json({
-      ...product,
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      service_fee: product.service_fee,
+      videoUrl: product.video_url,
+      category: product.category,
+      image_url: product.image_url,
+      public_id: product.public_id,
       image: product.image_url || '/images/category_electronics.jpg',
       price_formatted: formatPrice(product.price),
       service_fee_formatted: formatPrice(product.service_fee),
