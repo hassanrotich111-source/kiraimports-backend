@@ -57,6 +57,21 @@ const upload = multer({ storage: multer.memoryStorage() });
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'kira_imports_secret_2024';
 
+// Helper function to parse price - strips Ksh, commas, spaces and returns number
+function parsePrice(priceString) {
+  if (!priceString) return null;
+  // Remove Ksh, ksh, commas, spaces, and any non-numeric characters except decimal point
+  const cleaned = priceString.toString().replace(/[Kk]sh|[,\s]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+// Helper function to format price for display
+function formatPrice(num) {
+  if (num === null || num === undefined || num === 0 || num === '0') return 'Ksh 0';
+  return 'Ksh ' + Number(num).toLocaleString('en-KE');
+}
+
 // Initialize database tables
 async function initDatabase() {
   try {
@@ -81,7 +96,9 @@ async function initDatabase() {
         name VARCHAR(255) NOT NULL,
         description TEXT,
         category VARCHAR(100),
-        price DECIMAL(10,2),
+        price VARCHAR(50),
+        service_fee VARCHAR(50),
+        video_url TEXT,
         image_url TEXT,
         public_id VARCHAR(255),
         active BOOLEAN DEFAULT true,
@@ -107,7 +124,42 @@ async function initDatabase() {
         overlay_opacity INTEGER DEFAULT 85,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS testimonials (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        title VARCHAR(100) NOT NULL,
+        quote TEXT NOT NULL,
+        rating INTEGER DEFAULT 5,
+        image_key VARCHAR(50),
+        sort_order INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
+
+    // Migration: Add service_fee column to products if it doesn't exist
+    try {
+      await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS service_fee VARCHAR(50)`);
+      console.log('Migration: service_fee column added (or already exists)');
+    } catch (err) {
+      console.log('Migration note:', err.message);
+    }
+    
+    // Migration: Add video_url column to products if it doesn't exist
+    try {
+      await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT`);
+      console.log('Migration: video_url column added (or already exists)');
+    } catch (err) {
+      console.log('Migration note:', err.message);
+    }
+    
+    // Migration: Add image_url column to testimonials if it doesn't exist
+    try {
+      await pool.query(`ALTER TABLE testimonials ADD COLUMN IF NOT EXISTS image_url TEXT`);
+      console.log('Migration: testimonials image_url column added (or already exists)');
+    } catch (err) {
+      console.log('Migration note:', err.message);
+    }
 
     // Insert default admin if not exists (username: Diana, password: Deeimports@2026)
     const hashedPassword = await bcrypt.hash('Deeimports@2026', 10);
@@ -144,7 +196,8 @@ async function initDatabase() {
       ('service_quality', ''),
       ('service_shipping', ''),
       ('service_delivery', ''),
-      ('service_support', '')
+      ('service_support', ''),
+      ('shop_background', '')
       ON CONFLICT (key) DO NOTHING
     `);
 
@@ -233,31 +286,51 @@ app.get('/api/images', async (req, res) => {
   }
 });
 
-// Upload image (admin only)
+// Save image URL to database (used after direct Cloudinary upload from browser)
+app.post('/api/images/:key/save', authMiddleware, async (req, res) => {
+  const { key } = req.params;
+  const { url, public_id } = req.body;
+  
+  if (!url) return res.status(400).json({ error: 'No URL provided' });
+  
+  try {
+    await pool.query(`
+      INSERT INTO images (key, url, public_id, updated_at) 
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (key) 
+      DO UPDATE SET url = $2, public_id = $3, updated_at = NOW()
+    `, [key, url, public_id || null]);
+
+    if (key === 'background') {
+      const existing = await pool.query('SELECT id FROM background_settings ORDER BY id LIMIT 1');
+      if (existing.rows.length > 0) {
+        await pool.query(`UPDATE background_settings SET type = 'image', image_url = $1, updated_at = NOW() WHERE id = $2`, [url, existing.rows[0].id]);
+      } else {
+        await pool.query(`INSERT INTO background_settings (type, image_url, color, overlay_opacity, updated_at) VALUES ('image', $1, '#0a1f3d', 85, NOW())`, [url]);
+      }
+    }
+    res.json({ success: true, url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upload image through backend (fallback when direct Cloudinary upload not available)
 app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req, res) => {
   const { key } = req.params;
   
   try {
-    console.log('Upload request received for key:', key);
-    console.log('File received:', req.file ? 'Yes' : 'No');
-    
-    let imageUrl = req.body.url; // If URL provided instead of file
+    console.log('Upload request for key:', key);
+    let imageUrl = req.body.url;
     let publicId = null;
 
-    // If file uploaded, upload to Cloudinary
     if (req.file) {
-      console.log('Uploading to Cloudinary...');
       const result = await new Promise((resolve, reject) => {
         cloudinary.uploader.upload_stream(
           { folder: 'kira_imports' },
           (error, result) => {
-            if (error) {
-              console.error('Cloudinary upload error:', error);
-              reject(error);
-            } else {
-              console.log('Cloudinary upload success:', result.secure_url);
-              resolve(result);
-            }
+            if (error) reject(error);
+            else resolve(result);
           }
         ).end(req.file.buffer);
       });
@@ -265,12 +338,8 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       publicId = result.public_id;
     }
 
-    if (!imageUrl) {
-      return res.status(400).json({ error: 'No image provided' });
-    }
+    if (!imageUrl) return res.status(400).json({ error: 'No image provided' });
 
-    // Update database
-    console.log('Saving to database:', key, imageUrl);
     await pool.query(`
       INSERT INTO images (key, url, public_id, updated_at) 
       VALUES ($1, $2, $3, NOW())
@@ -278,46 +347,59 @@ app.post('/api/images/:key', authMiddleware, upload.single('image'), async (req,
       DO UPDATE SET url = $2, public_id = $3, updated_at = NOW()
     `, [key, imageUrl, publicId]);
 
-    // If this is the background image, also update background_settings
     if (key === 'background') {
-      console.log('Updating background_settings with new image URL');
       const existing = await pool.query('SELECT id FROM background_settings ORDER BY id LIMIT 1');
       if (existing.rows.length > 0) {
-        await pool.query(`
-          UPDATE background_settings 
-          SET type = 'image', image_url = $1, updated_at = NOW()
-          WHERE id = $2
-        `, [imageUrl, existing.rows[0].id]);
+        await pool.query(`UPDATE background_settings SET type = 'image', image_url = $1, updated_at = NOW() WHERE id = $2`, [imageUrl, existing.rows[0].id]);
       } else {
-        await pool.query(`
-          INSERT INTO background_settings (type, image_url, color, overlay_opacity, updated_at)
-          VALUES ('image', $1, '#0a1f3d', 85, NOW())
-        `, [imageUrl]);
+        await pool.query(`INSERT INTO background_settings (type, image_url, color, overlay_opacity, updated_at) VALUES ('image', $1, '#0a1f3d', 85, NOW())`, [imageUrl]);
       }
-      console.log('Background settings updated');
     }
 
-    console.log('Image saved successfully');
     res.json({ success: true, url: imageUrl });
   } catch (err) {
-    console.error('Upload error:', err);
-    res.status(500).json({ error: err.message, details: err.toString() });
+    res.status(500).json({ error: err.message });
   }
 });
 
 // ========== PRODUCTS ROUTES ==========
 
+// Debug: Get raw products
+app.get('/api/products/debug', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, name, price, service_fee, video_url FROM products WHERE active = true');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get all products
 app.get('/api/products', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM products WHERE active = true ORDER BY created_at DESC');
-    // Transform data to include both image and image_url for compatibility
+    console.log('Products fetched:', result.rows.length);
+    if (result.rows.length > 0) {
+      console.log('First product:', result.rows[0].name, 'service_fee:', result.rows[0].service_fee);
+    }
+    // Transform data to include formatted prices and image for compatibility
     const products = result.rows.map(p => ({
-      ...p,
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      price: p.price,
+      service_fee: p.service_fee,
+      videoUrl: p.video_url,
+      category: p.category,
+      image_url: p.image_url,
+      public_id: p.public_id,
       image: p.image_url || '/images/category_electronics.jpg',
+      price_formatted: formatPrice(p.price),
+      service_fee_formatted: formatPrice(p.service_fee),
     }));
     res.json(products);
   } catch (err) {
+    console.error('Get products error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -334,10 +416,16 @@ app.get('/api/products/:id', async (req, res) => {
 
 // Create product (admin only)
 app.post('/api/products', authMiddleware, upload.single('image'), async (req, res) => {
-  const { name, description, category, price } = req.body;
+  console.log('=== CREATE PRODUCT ===');
+  console.log('Request body:', req.body);
   
-  console.log('Create product request:', { name, category, price });
-  console.log('File received:', req.file ? 'Yes' : 'No');
+  const { name, description, category, price, service_fee, video_url } = req.body;
+  
+  // Parse prices - strip Ksh and commas
+  const parsedPrice = parsePrice(price);
+  const parsedServiceFee = parsePrice(service_fee);
+  
+  console.log('Parsed values:', { price: parsedPrice, service_fee: parsedServiceFee, video_url });
   
   try {
     let imageUrl = req.body.image_url || null;
@@ -365,16 +453,26 @@ app.post('/api/products', authMiddleware, upload.single('image'), async (req, re
 
     console.log('Saving product to database...');
     const result = await pool.query(`
-      INSERT INTO products (name, description, category, price, image_url, public_id)
-      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
-    `, [name, description, category, price, imageUrl, publicId]);
+      INSERT INTO products (name, description, category, price, service_fee, video_url, image_url, public_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
+    `, [name, description, category, parsedPrice, parsedServiceFee || 0, video_url || null, imageUrl, publicId]);
 
-    console.log('Product created:', result.rows[0].id);
-    // Return with image field for compatibility
+    console.log('Product created:', result.rows[0].id, 'service_fee:', result.rows[0].service_fee);
+    // Return with image field and formatted prices for display
     const product = result.rows[0];
     res.json({
-      ...product,
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      service_fee: product.service_fee,
+      videoUrl: product.video_url,
+      category: product.category,
+      image_url: product.image_url,
+      public_id: product.public_id,
       image: product.image_url || '/images/category_electronics.jpg',
+      price_formatted: formatPrice(product.price),
+      service_fee_formatted: formatPrice(product.service_fee),
     });
   } catch (err) {
     console.error('Create product error:', err);
@@ -384,7 +482,16 @@ app.post('/api/products', authMiddleware, upload.single('image'), async (req, re
 
 // Update product (admin only)
 app.put('/api/products/:id', authMiddleware, upload.single('image'), async (req, res) => {
-  const { name, description, category, price } = req.body;
+  console.log('=== UPDATE PRODUCT ===');
+  console.log('Request body:', req.body);
+  
+  const { name, description, category, price, service_fee, video_url } = req.body;
+  
+  // Parse prices - strip Ksh and commas
+  const parsedPrice = parsePrice(price);
+  const parsedServiceFee = parsePrice(service_fee);
+  
+  console.log('Parsed values:', { price: parsedPrice, service_fee: parsedServiceFee, video_url });
   
   try {
     let imageUrl = req.body.image_url;
@@ -406,15 +513,26 @@ app.put('/api/products/:id', authMiddleware, upload.single('image'), async (req,
 
     const result = await pool.query(`
       UPDATE products 
-      SET name = $1, description = $2, category = $3, price = $4, image_url = $5, public_id = $6, updated_at = NOW()
-      WHERE id = $7 RETURNING *
-    `, [name, description, category, price, imageUrl, publicId, req.params.id]);
+      SET name = $1, description = $2, category = $3, price = $4, service_fee = $5, video_url = $6, image_url = $7, public_id = $8, updated_at = NOW()
+      WHERE id = $9 RETURNING *
+    `, [name, description, category, parsedPrice, parsedServiceFee || 0, video_url || null, imageUrl, publicId, req.params.id]);
 
-    // Return with image field for compatibility
+    console.log('Product updated:', result.rows[0].id, 'service_fee:', result.rows[0].service_fee);
+    // Return with image field and formatted prices
     const product = result.rows[0];
     res.json({
-      ...product,
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      service_fee: product.service_fee,
+      videoUrl: product.video_url,
+      category: product.category,
+      image_url: product.image_url,
+      public_id: product.public_id,
       image: product.image_url || '/images/category_electronics.jpg',
+      price_formatted: formatPrice(product.price),
+      service_fee_formatted: formatPrice(product.service_fee),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -500,6 +618,55 @@ app.post('/api/background', authMiddleware, async (req, res) => {
     res.json({ success: true, type, imageUrl, color, overlayOpacity });
   } catch (err) {
     console.error('Save background error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== TESTIMONIALS ROUTES ==========
+
+// Get all testimonials (public - no auth needed)
+app.get('/api/testimonials', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM testimonials ORDER BY sort_order ASC, id ASC');
+    // Map snake_case to camelCase for frontend
+    const testimonials = result.rows.map(t => ({
+      id: t.id,
+      name: t.name,
+      title: t.title,
+      quote: t.quote,
+      rating: t.rating,
+      imageKey: t.image_key,
+      imageUrl: t.image_url,
+      sortOrder: t.sort_order,
+    }));
+    res.json(testimonials);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save all testimonials (admin only)
+app.post('/api/testimonials', authMiddleware, async (req, res) => {
+  const { testimonials } = req.body;
+  
+  if (!Array.isArray(testimonials)) {
+    return res.status(400).json({ error: 'testimonials array required' });
+  }
+  
+  try {
+    // Clear existing and insert new
+    await pool.query('DELETE FROM testimonials');
+    
+    for (let i = 0; i < testimonials.length; i++) {
+      const t = testimonials[i];
+      await pool.query(
+        'INSERT INTO testimonials (name, title, quote, rating, image_key, image_url, sort_order) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [t.name, t.title, t.quote, t.rating || 5, t.imageKey || null, t.imageUrl || null, i]
+      );
+    }
+    
+    res.json({ success: true, count: testimonials.length });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
