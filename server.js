@@ -135,6 +135,19 @@ async function initDatabase() {
         sort_order INTEGER DEFAULT 0,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS company_settings (
+        id SERIAL PRIMARY KEY,
+        phone VARCHAR(50) DEFAULT '+254792821836',
+        whatsapp VARCHAR(50) DEFAULT '+254792821836',
+        email VARCHAR(100) DEFAULT 'kiraimports6@gmail.com',
+        address VARCHAR(255) DEFAULT 'Nairobi, Kenya',
+        hours VARCHAR(100) DEFAULT 'Mon–Sat, 8:00–18:00 EAT',
+        instagram VARCHAR(100) DEFAULT 'kira_imports_',
+        tiktok VARCHAR(100) DEFAULT 'kira.imports_',
+        facebook VARCHAR(100) DEFAULT 'Kira Imports',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migration: Add service_fee column to products if it doesn't exist
@@ -205,6 +218,13 @@ async function initDatabase() {
     await pool.query(`
       INSERT INTO background_settings (type, image_url, color, overlay_opacity) 
       VALUES ('image', '/images/hero_shipping_bg.jpg', '#0a1f3d', 85)
+      ON CONFLICT DO NOTHING
+    `);
+
+    // Insert default company settings if not exists
+    await pool.query(`
+      INSERT INTO company_settings (phone, whatsapp, email, address, hours, instagram, tiktok, facebook)
+      VALUES ('+254792821836', '+254792821836', 'kiraimports6@gmail.com', 'Nairobi, Kenya', 'Mon–Sat, 8:00–18:00 EAT', 'kira_imports_', 'kira.imports_', 'Kira Imports')
       ON CONFLICT DO NOTHING
     `);
 
@@ -666,6 +686,53 @@ app.post('/api/testimonials', authMiddleware, async (req, res) => {
     }
     
     res.json({ success: true, count: testimonials.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get company settings (public)
+app.get('/api/company', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM company_settings ORDER BY id LIMIT 1');
+    if (result.rows.length > 0) {
+      res.json(result.rows[0]);
+    } else {
+      res.json({
+        phone: '+254792821836',
+        whatsapp: '+254792821836',
+        email: 'kiraimports6@gmail.com',
+        address: 'Nairobi, Kenya',
+        hours: 'Mon–Sat, 8:00–18:00 EAT',
+        instagram: 'kira_imports_',
+        tiktok: 'kira.imports_',
+        facebook: 'Kira Imports'
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update company settings (admin only)
+app.post('/api/company', authMiddleware, async (req, res) => {
+  try {
+    const { phone, whatsapp, email, address, hours, instagram, tiktok, facebook } = req.body;
+    const result = await pool.query('SELECT id FROM company_settings ORDER BY id LIMIT 1');
+    if (result.rows.length > 0) {
+      await pool.query(`
+        UPDATE company_settings 
+        SET phone = $1, whatsapp = $2, email = $3, address = $4, hours = $5, 
+            instagram = $6, tiktok = $7, facebook = $8, updated_at = NOW()
+        WHERE id = $9
+      `, [phone, whatsapp, email, address, hours, instagram, tiktok, facebook, result.rows[0].id]);
+    } else {
+      await pool.query(`
+        INSERT INTO company_settings (phone, whatsapp, email, address, hours, instagram, tiktok, facebook)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [phone, whatsapp, email, address, hours, instagram, tiktok, facebook]);
+    }
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
